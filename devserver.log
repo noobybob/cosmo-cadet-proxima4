@@ -1,0 +1,177 @@
+
+> cosmo-cadet@0.1.0 dev
+> next dev -p 3000
+
+  ▲ Next.js 14.2.15
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1935ms
+ ○ Compiling / ...
+ ✓ Compiled / in 4.7s (621 modules)
+ GET / 200 in 4913ms
+ ○ Compiling /courses ...
+ ✓ Compiled /courses in 517ms (600 modules)
+ GET /courses 200 in 669ms
+ ✓ Compiled /achievements in 272ms (585 modules)
+ GET /achievements 200 in 367ms
+ ○ Compiling /courses/mars-habitation-simulator ...
+ ✓ Compiled /courses/mars-habitation-simulator in 628ms (617 modules)
+ ✓ Compiled in 406ms (313 modules)
+ GET /courses/mars-habitation-simulator 200 in 1065ms
+ ✓ Compiled in 492ms (605 modules)
+ ✓ Compiled /courses/mars-habitation-simulator in 189ms (304 modules)
+ GET /courses/mars-habitation-simulator 200 in 389ms
+ GET /courses 200 in 115ms
+ ✓ Compiled / in 304ms (313 modules)
+ ✓ Compiled in 387ms (313 modules)
+ ✓ Compiled in 3.1s (1343 modules)
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET /courses/mars-habitation-simulator 200 in 373ms
+ GET / 200 in 404ms
+ ✓ Compiled in 632ms (1343 modules)
+ ✓ Compiled in 635ms (1343 modules)
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /courses/mars-habitation-simulator 200 in 196ms
+ GET /courses/mars-habitation-simulator 200 in 43ms
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ✓ Compiled in 690ms (1343 modules)
+ ✓ Compiled in 1ms (672 modules)
+ ✓ Compiled in 0ms (672 modules)
+ ✓ Compiled in 1ms (672 modules)
+ GET /courses/mars-habitation-simulator 200 in 842ms
+ ✓ Compiled in 418ms (671 modules)
+ ✓ Compiled in 270ms (671 modules)
+ ✓ Compiled in 330ms (671 modules)
+ GET / 200 in 183ms
+ GET / 200 in 43ms
+ GET /courses/mars-habitation-simulator 200 in 57ms
+ GET /courses/mars-habitation-simulator 200 in 36ms
+ GET /courses/mars-habitation-simulator 200 in 52ms
+ ○ Compiling /courses/moon-outpost ...
+ ✓ Compiled /courses/moon-outpost in 988ms (1338 modules)
+ GET /courses/moon-outpost 200 in 1167ms
+ ✓ Compiled in 674ms (674 modules)
+ ○ Compiling /library ...
+ ✓ Compiled /library in 635ms (1344 modules)
+ GET /library 200 in 841ms
+ ✓ Compiled in 2.8s (1351 modules)
+ GET /library 200 in 166ms
+ ✓ Compiled /achievements in 306ms (682 modules)
+ ⨯ ./app/courses/mars-habitation-simulator/page.tsx
+Error: 
+  [31mx[0m Expected ',', got 'className'
+    ,-[[36;1;4mC:\Users\Dell\Documents\NASA SPACE APPS\app\courses\mars-habitation-simulator\page.tsx[0m:15:1]
+ [2m15[0m |   return (
+ [2m16[0m |     {/* No flat background: the themed body background + Starfield (the
+ [2m17[0m |         home page's backdrop) shows through here in light and dark mode. */}
+ [2m18[0m |     <main className="min-h-screen px-4 py-8 font-sans sm:px-6 lg:px-8">
+    : [31;1m          ^^^^^^^^^[0m
+ [2m19[0m |       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col">
+ [2m20[0m |         <header className="text-center">
+ [2m21[0m |           <h1 className="text-3xl font-bold leading-tight text-cosmic sm:text-4xl">
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/courses/mars-habitation-simulator/page.tsx
+ ○ Compiling /_not-found ...
+ ⨯ ./app/courses/mars-habitation-simulator/page.tsx
+Error: 
+  [31mx[0m Expected ',', got 'className'
+    ,-[[36;1;4mC:\Users\Dell\Documents\NASA SPACE APPS\app\courses\mars-habitation-simulator\page.tsx[0m:15:1]
+ [2m15[0m |   return (
+ [2m16[0m |     {/* No flat background: the themed body background + Starfield (the
+ [2m17[0m |         home page's backdrop) shows through here in light and dark mode. */}
+ [2m18[0m |     <main className="min-h-screen px-4 py-8 font-sans sm:px-6 lg:px-8">
+    : [31;1m          ^^^^^^^^^[0m
+ [2m19[0m |       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col">
+ [2m20[0m |         <header className="text-center">
+ [2m21[0m |           <h1 className="text-3xl font-bold leading-tight text-cosmic sm:text-4xl">
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/courses/mars-habitation-simulator/page.tsx
+ GET /_next/static/webpack/beba731f5b2ec601.webpack.hot-update.json 500 in 30817ms
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /courses/mars-habitation-simulator 500 in 121ms
+ GET /library 500 in 137ms
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Dell\Documents\NASA SPACE APPS\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Dell\Documents\NASA SPACE APPS\.next\cache\webpack\client-development-fallback\0.pack.gz'
+ ✓ Compiled /_error in 945ms (852 modules)
+ ○ Compiling /_not-found ...
+ ⨯ ./app/courses/mars-habitation-simulator/page.tsx
+Error: 
+  [31mx[0m Expected ',', got 'className'
+    ,-[[36;1;4mC:\Users\Dell\Documents\NASA SPACE APPS\app\courses\mars-habitation-simulator\page.tsx[0m:15:1]
+ [2m15[0m |   return (
+ [2m16[0m |     {/* No flat background: the themed body background + Starfield (the
+ [2m17[0m |         home page's backdrop) shows through here in light and dark mode. */}
+ [2m18[0m |     <main className="min-h-screen px-4 py-8 font-sans sm:px-6 lg:px-8">
+    : [31;1m          ^^^^^^^^^[0m
+ [2m19[0m |       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col">
+ [2m20[0m |         <header className="text-center">
+ [2m21[0m |           <h1 className="text-3xl font-bold leading-tight text-cosmic sm:text-4xl">
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/courses/mars-habitation-simulator/page.tsx
+ GET /library 500 in 2007ms
+ GET /courses/mars-habitation-simulator 500 in 2028ms
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /_next/static/webpack/ea2aa25055009ccd.webpack.hot-update.json 500 in 1938ms
+ GET /_next/static/webpack/ea2aa25055009ccd.webpack.hot-update.json 500 in 1945ms
+ GET /library 500 in 48ms
+ GET /library 500 in 252ms
+ GET /courses/mars-habitation-simulator 500 in 97ms
+ GET /courses/mars-habitation-simulator 500 in 43ms
+ ✓ Compiled /_not-found in 10s (1580 modules)
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ✓ Compiled (1566 modules)
+ GET /library 200 in 2677ms
+ GET /courses/mars-habitation-simulator 200 in 2714ms
+ GET /courses/mars-habitation-simulator 200 in 73ms
+ GET /courses/moon-outpost 200 in 61ms
+ ✓ Compiled /achievements in 453ms (724 modules)
+ GET /achievements 200 in 723ms
+ ⨯ ./app/library/page.tsx
+Error: 
+  [31mx[0m Unexpected token `main`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Dell\Documents\NASA SPACE APPS\app\library\page.tsx[0m:326:1]
+ [2m326[0m |   }, [openEntry]);
+ [2m327[0m | 
+ [2m328[0m |   return (
+ [2m329[0m |     <main className="min-h-screen pb-32">
+     : [31;1m     ^^^^[0m
+ [2m330[0m |       <NavBar />
+ [2m331[0m | 
+ [2m332[0m |       <section aria-label="Library" className="mx-auto w-full max-w-5xl px-4 py-8">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/library/page.tsx
+ GET /library 500 in 64ms
+ GET /courses/mars-habitation-simulator 500 in 100ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.4s (1566 modules)
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /library 200 in 579ms
+ GET /_next/static/webpack/ea2aa25055009ccd.webpack.hot-update.json 404 in 3046ms
+ GET /_next/static/webpack/ea2aa25055009ccd.webpack.hot-update.json 404 in 3070ms
+ GET /courses/mars-habitation-simulator 200 in 776ms
+ GET /library 200 in 218ms
+ ✓ Compiled in 2.3s (1577 modules)
+ ○ Compiling /achievements ...
+ ✓ Compiled /achievements in 615ms (723 modules)

@@ -1,0 +1,24 @@
+
+> cosmo-cadet@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.15
+  - Local:        http://localhost:49841
+
+ ✓ Starting...
+ ✓ Ready in 2.5s
+ ○ Compiling /courses/moon-outpost ...
+ ✓ Compiled /courses/moon-outpost in 4.6s (1314 modules)
+ GET /courses/moon-outpost 200 in 4899ms
+ GET /courses/moon-outpost 200 in 56ms
+ GET /courses/moon-outpost 200 in 75ms
+ GET /courses/moon-outpost 200 in 75ms
+ GET /courses/moon-outpost 200 in 64ms
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 1100ms (1325 modules)
+ GET /courses/moon-outpost 200 in 169ms
+ ✓ Compiled in 391ms (1325 modules)
+ GET /courses/moon-outpost 200 in 62ms
+ GET /courses/moon-outpost 200 in 59ms
+ ✓ Compiled in 372ms (1325 modules)
+[?25h

@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Cosmo Cadet auth verification</title>
+<style>
+  body { margin: 0; padding: 24px; background: #0b1030; color: #d7e3ff; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; }
+  h1 { font-size: 15px; color: #7dd3fc; margin: 0 0 12px; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<h1>Cosmo Cadet — auth verification (behavior tests + strict typecheck)</h1>
+<pre id="results">starting…</pre>
+
+<script type="text/plain" data-path="lib/auth.ts">
+/**
+ * Pure, framework-free authentication logic for Cosmo Cadet.
+ *
+ * The app has no server: accounts and the login session live in localStorage,
+ * which is already the app's persistence layer (the previous AccountProvider
+ * kept the active account there under `cosmo-cadet-active-account`). Every
+ * function takes an explicit storage argument, so the exact code that runs in
+ * the app can also be exercised in isolation.
+ *
+ * Passwords are never stored in plain text: they pass through a lightweight
+ * non-cryptographic hash first. This is a client-only demo store, not a
+ * substitute for server-side credential handling.
+ */
+
+/** A registered (signed-up) account as persisted in localStorage. */
+export interface StoredAccount {
+  readonly id: string;
+  readonly displayName: string;
+  readonly fullName: string;
+  readonly username: string;
+  readonly passwordHash: string;
+}
+
+/** Minimal slice of the Storage API so logic can run against any storage. */
+export interface KeyValueStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/** Raw sign-up form values. */
+export interface AuthInput {
+  readonly fullName: string;
+  readonly username: string;
+  readonly password: string;
+  readonly confirmPassword: string;
+}
+
+/** Result of a sign-up or sign-in attempt. */
+export interface AuthOutcome {
+  readonly ok: boolean;
+  readonly error?: string;
+  /** The account that was created or authenticated; present when `ok`. */
+  readonly account?: StoredAccount;
+}
+
+/** User-facing messages, kept verbatim so the UI stays consistent. */
+export const AUTH_MESSAGES = {
+  required: "Please fill in all required fields.",
+  passwordMismatch: "Passwords do not match.",
+  usernameTaken: "Username already taken. Please choose another username.",
+  badCredentials: "Incorrect username or password.",
+} as const;
+
+/** Storage keys. The session key is the app's original key, so existing sessions survive. */
+export const ACCOUNT_STORAGE_KEY = "cosmo-cadet-active-account";
+export const USERS_STORAGE_KEY = "cosmo-cadet-users";
+
+/** Case-insensitive, whitespace-trimmed username used for lookup and uniqueness. */
+export function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+/**
+ * Deterministic 64-bit FNV-style hash of a password. Two independent 32-bit
+ * passes keep the digest short while making naive reversal pointless for a
+ * local demo store. Never store the plain password itself.
+ */
+export function hashPassword(password: string): string {
+  let forward = 2166136261;
+  let backward = 5381;
+  for (const character of password) {
+    const code: number = character.codePointAt(0) ?? 0;
+    forward = Math.imul(forward ^ code, 16777619);
+    backward = (Math.imul(backward, 33) + code) | 0;
+  }
+  return `${(forward >>> 0).toString(16).padStart(8, "0")}-${(backward >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
+/** Type guard for accounts recovered from JSON storage. */
+export function isStoredAccount(value: unknown): value is StoredAccount {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<StoredAccount>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.displayName === "string" &&
+    typeof candidate.fullName === "string" &&
+    typeof candidate.username === "string" &&
+    typeof candidate.passwordHash === "string"
+  );
+}
+
+/** Reads every registered account; tolerates missing or corrupt storage. */
+export function readAccounts(storage: KeyValueStorage): StoredAccount[] {
+  try {
+    const raw: string | null = storage.getItem(USERS_STORAGE_KEY);
+    if (raw === null) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(isStoredAccount);
+  } catch {
+    return [];
+  }
+}
+
+/** Persists the account registry (best effort: quota errors are swallowed). */
+export function writeAccounts(
+  storage: KeyValueStorage,
+  accounts: readonly StoredAccount[],
+): void {
+  try {
+    storage.setItem(USERS_STORAGE_KEY, JSON.stringify(accounts));
+  } catch {
+    // Storage unavailable (private mode / quota): the session then only
+    // lives until reload, but the app keeps working.
+  }
+}
+
+/**
+ * Returns the stored session id when it points at a known account
+ * (registered users plus demo cadets). An unknown or stale id is removed so a
+ * logged-out or tampered session can never open the app.
+ */
+export function readSessionId(
+  storage: KeyValueStorage,
+  knownIds: readonly string[],
+): string | null {
+  let storedId: string | null = null;
+  try {
+    storedId = storage.getItem(ACCOUNT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (storedId === null) {
+    return null;
+  }
+  if (knownIds.includes(storedId)) {
+    return storedId;
+  }
+  try {
+    storage.removeItem(ACCOUNT_STORAGE_KEY);
+  } catch {
+    // Ignore: nothing we can do if storage is unavailable.
+  }
+  return null;
+}
+
+/** Opens (or keeps) a session for the given account id. */
+export function writeSessionId(storage: KeyValueStorage, id: string): void {
+  try {
+    storage.setItem(ACCOUNT_STORAGE_KEY, id);
+  } catch {
+    // Ignore: session will still be active in memory for this page load.
+  }
+}
+
+/** Ends the session. Called by Logout so no authenticated state survives. */
+export function clearSessionId(storage: KeyValueStorage): void {
+  try {
+    storage.removeItem(ACCOUNT_STORAGE_KEY);
+  } catch {
+    // Ignore: nothing we can do if storage is unavailable.
+  }
+}
+
+/**
+ * Validates the sign-up form, registers the account, persists it and opens a
+ * session for it. Error cases:
+ * - empty required fields  → AUTH_MESSAGES.required
+ * - password confirmation  → AUTH_MESSAGES.passwordMismatch
+ * - duplicate username     → AUTH_MESSAGES.usernameTaken
+ */
+export function createAccount(
+  storage: KeyValueStorage,
+  input: AuthInput,
+): AuthOutcome {
+  const fullName: string = input.fullName.trim();
+  const username: string = input.username.trim();
+
+  if (
+    fullName === "" ||
+    username === "" ||
+    input.password === "" ||
+    input.confirmPassword === ""
+  ) {
+    return { ok: false, error: AUTH_MESSAGES.required };
+  }
+
+  if (input.password !== input.confirmPassword) {
+    return { ok: false, error: AUTH_MESSAGES.passwordMismatch };
+  }
+
+  const normalized: string = normalizeUsername(username);
+  const existing: StoredAccount[] = readAccounts(storage);
+  if (existing.some((account): boolean => normalizeUsername(account.username) === normalized)) {
+    return { ok: false, error: AUTH_MESSAGES.usernameTaken };
+  }
+
+  const account: StoredAccount = {
+    id: `cadet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    displayName: fullName,
+    fullName,
+    username,
+    passwordHash: hashPassword(input.password),
+  };
+
+  writeAccounts(storage, [...existing, account]);
+  writeSessionId(storage, account.id);
+  return { ok: true, account };
+}
+
+/**
+ * Validates credentials against the stored accounts and opens a session.
+ * Unknown username and wrong password both return AUTH_MESSAGES.badCredentials
+ * so the response never reveals which accounts exist.
+ */
+export function signIn(
+  storage: KeyValueStorage,
+  username: string,
+  password: string,
+): AuthOutcome {
+  if (username.trim() === "" || password === "") {
+    return { ok: false, error: AUTH_MESSAGES.required };
+  }
+
+  const normalized: string = normalizeUsername(username);
+  const account: StoredAccount | undefined = readAccounts(storage).find(
+    (candidate): boolean => normalizeUsername(candidate.username) === normalized,
+  );
+
+  if (account === undefined || account.passwordHash !== hashPassword(password)) {
+    return { ok: false, error: AUTH_MESSAGES.badCredentials };
+  }
+
+  writeSessionId(storage, account.id);
+  return { ok: true, account };
+}
+</script>
+
+<script type="text/plain" data-path="components/AccountProvider.tsx">
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import {
+  AUTH_MESSAGES,
+  clearSessionId,
+  createAccount,
+  readAccounts,
+  readSessionId,
+  signIn,
+  writeSessionId,
+  type AuthInput,
+  type StoredAccount,
+} from "@/lib/auth";
+
+/** An account the profile bar and switcher can display. */
+export interface AccountOption {
+  readonly id: string;
+  readonly displayName: string;
+  /** Only registered (signed-up) accounts have a login username. */
+  readonly username?: string;
+}
+
+/** Built-in demo cadets kept from the original app; switchable without a password. */
+export const ACCOUNTS: readonly AccountOption[] = [
+  { id: "cadet-alex", displayName: "Cadet Alex" },
+  { id: "cadet-sam", displayName: "Cadet Sam" },
+];
+
+/** Session state: `loading` until localStorage has been read after mount. */
+export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+
+/** Result of a sign-up or login attempt, surfaced by the auth screens. */
+export interface AuthResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+export interface AccountContextValue {
+  readonly accounts: readonly AccountOption[];
+  readonly activeAccountId: string;
+  readonly activeAccount: AccountOption | undefined;
+  readonly status: AuthStatus;
+  readonly notice: string | null;
+  readonly dismissNotice: () => void;
+  readonly switchAccount: (accountId: string) => void;
+  readonly signUp: (input: AuthInput) => AuthResult;
+  readonly logIn: (username: string, password: string) => AuthResult;
+  readonly logout: () => void;
+}
+
+export interface AccountProviderProps {
+  readonly children: ReactNode;
+}
+
+const AccountContext = createContext<AccountContextValue | undefined>(undefined);
+
+/**
+ * Shared account + session state for the whole app: which cadet is signed in,
+ * whether a session exists, and the sign-up / login / logout actions. Accounts
+ * and the active session persist in localStorage (via `@/lib/auth`), so a
+ * refresh keeps a logged-in user inside the app while a logged-out visitor
+ * always lands on the auth screen.
+ */
+export function AccountProvider({
+  children,
+}: AccountProviderProps): ReactElement {
+  const [users, setUsers] = useState<StoredAccount[]>([]);
+  const [activeAccountId, setActiveAccountId] = useState<string>("");
+  const [status, setStatus] = useState<AuthStatus>("loading");
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Restore the session exactly once after mount (localStorage is unavailable
+  // during SSR, so this is also what keeps hydration consistent).
+  useEffect(() => {
+    const storedAccounts: StoredAccount[] = readAccounts(window.localStorage);
+    const knownIds: readonly string[] = [
+      ...ACCOUNTS.map((account): string => account.id),
+      ...storedAccounts.map((account): string => account.id),
+    ];
+    const storedId: string | null = readSessionId(
+      window.localStorage,
+      knownIds,
+    );
+
+    setUsers(storedAccounts);
+    if (storedId !== null) {
+      setActiveAccountId(storedId);
+      setStatus("authenticated");
+    } else {
+      setActiveAccountId("");
+      setStatus("unauthenticated");
+    }
+  }, []);
+
+  const signUp = useCallback((input: AuthInput): AuthResult => {
+    const outcome = createAccount(window.localStorage, input);
+    if (!outcome.ok || outcome.account === undefined) {
+      return { ok: false, error: outcome.error ?? AUTH_MESSAGES.required };
+    }
+    setUsers(readAccounts(window.localStorage));
+    setActiveAccountId(outcome.account.id);
+    setStatus("authenticated");
+    setNotice(
+      `Account created successfully! Welcome aboard, ${outcome.account.displayName}.`,
+    );
+    return { ok: true };
+  }, []);
+
+  const logIn = useCallback(
+    (username: string, password: string): AuthResult => {
+      const outcome = signIn(window.localStorage, username, password);
+      if (!outcome.ok || outcome.account === undefined) {
+        return {
+          ok: false,
+          error: outcome.error ?? AUTH_MESSAGES.badCredentials,
+        };
+      }
+      setActiveAccountId(outcome.account.id);
+      setStatus("authenticated");
+      setNotice(null);
+      return { ok: true };
+    },
+    [],
+  );
+
+  const logout = useCallback((): void => {
+    // Clear the persisted session first so a refresh cannot restore it.
+    clearSessionId(window.localStorage);
+    setActiveAccountId("");
+    setStatus("unauthenticated");
+    setNotice(null);
+  }, []);
+
+  const switchAccount = useCallback(
+    (accountId: string): void => {
+      const isKnown: boolean =
+        ACCOUNTS.some((account): boolean => account.id === accountId) ||
+        users.some((account): boolean => account.id === accountId);
+      if (!isKnown) {
+        return;
+      }
+      writeSessionId(window.localStorage, accountId);
+      setActiveAccountId(accountId);
+      setStatus("authenticated");
+    },
+    [users],
+  );
+
+  const dismissNotice = useCallback((): void => {
+    setNotice(null);
+  }, []);
+
+  const accounts = useMemo<readonly AccountOption[]>(
+    () => [...ACCOUNTS, ...users],
+    [users],
+  );
+
+  const activeAccount: AccountOption | undefined = useMemo(
+    () => accounts.find((account): boolean => account.id === activeAccountId),
+    [accounts, activeAccountId],
+  );
+
+  const contextValue = useMemo<AccountContextValue>(
+    () => ({
+      accounts,
+      activeAccountId,
+      activeAccount,
+      status,
+      notice,
+      dismissNotice,
+      switchAccount,
+      signUp,
+      logIn,
+      logout,
+    }),
+    [
+      accounts,
+      activeAccountId,
+      activeAccount,
+      status,
+      notice,
+      dismissNotice,
+      switchAccount,
+      signUp,
+      logIn,
+      logout,
+    ],
+  );
+
+  return (
+    <AccountContext.Provider value={contextValue}>
+      {children}
+    </AccountContext.Provider>
+  );
+}
+
+export function useAccounts(): AccountContextValue {
+  const context = useContext(AccountContext);
+  if (context === undefined) {
+    throw new Error("useAccounts must be used within an AccountProvider");
+  }
+  return context;
+}
+</script>
+
+<script type="text/plain" data-path="components/AuthGuard.tsx">
+"use client";
+
+import { useEffect, type ReactElement, type ReactNode } from "react";
+import { useAccounts } from "@/components/AccountProvider";
+import AuthScreen from "@/components/AuthScreen";
+import LoadingScreen from "@/components/LoadingScreen";
+
+export interface AuthGuardProps {
+  readonly children: ReactNode;
+}
+
+/** How long the account-created confirmation stays up before auto-dismiss. */
+const NOTICE_DISMISS_MS: number = 10_000;
+
+function SuccessIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
+      <path d="M4 12.5 9 17.5 20 6.5" />
+    </svg>
+  );
+}
+
+function CloseIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      className="h-4 w-4"
+    >
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
+/**
+ * Route-level authentication gate. Every page in the app renders inside the
+ * root layout, so nothing can appear until a session exists:
+ *
+ * - `loading`         → session check in progress (localStorage is read only
+ *                       after mount, never during SSR)
+ * - `unauthenticated` → the Login / Sign Up screens instead of the app
+ * - `authenticated`   → the real app, plus the account-created confirmation
+ *                       when `notice` is set.
+ */
+export default function AuthGuard({
+  children,
+}: AuthGuardProps): ReactElement {
+  const { status, notice, dismissNotice } = useAccounts();
+
+  useEffect((): (() => void) | undefined => {
+    if (notice === null) {
+      return undefined;
+    }
+    const timer: number = window.setTimeout(dismissNotice, NOTICE_DISMISS_MS);
+    return (): void => {
+      window.clearTimeout(timer);
+    };
+  }, [notice, dismissNotice]);
+
+  if (status === "loading") {
+    return <LoadingScreen message="Checking your session..." />;
+  }
+
+  if (status === "unauthenticated") {
+    return <AuthScreen />;
+  }
+
+  if (notice === null) {
+    return <>{children}</>;
+  }
+
+  return (
+    <>
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-4"
+      >
+        <div className="glass flex w-full max-w-2xl items-start gap-3 rounded-2xl border border-emerald-400/40 px-4 py-3 shadow-glow sm:items-center">
+          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-glow sm:mt-0">
+            <SuccessIcon />
+          </span>
+          <p className="flex-1 text-sm font-semibold leading-relaxed text-emerald-600 dark:text-emerald-300">
+            {notice}
+          </p>
+          <button
+            type="button"
+            onClick={dismissNotice}
+            aria-label="Dismiss notification"
+            className="rounded-lg p-1 text-emerald-600/70 transition-colors hover:bg-emerald-500/10 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-glow-400 dark:text-emerald-300/70 dark:hover:text-emerald-200"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      </div>
+      {children}
+    </>
+  );
+}
+</script>
+
+<script type="text/plain" data-path="components/AuthScreen.tsx">
+"use client";
+
+import Image from "next/image";
+import {
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactElement,
+} from "react";
+import { useAccounts } from "@/components/AccountProvider";
+import { AUTH_MESSAGES, type AuthInput } from "@/lib/auth";
+import {
+  LOGO_ALT,
+  LOGO_HEIGHT,
+  LOGO_SRC,
+  LOGO_WIDTH,
+} from "@/components/logo";
+
+/** Which card the auth screen is currently showing. */
+type AuthView = "landing" | "login" | "signup";
+
+const FIELD_LABEL_CLASS: string =
+  "block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400";
+
+const FIELD_INPUT_CLASS: string =
+  "w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500";
+
+const SUBMIT_CLASS: string =
+  "glow-btn w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none disabled:cursor-not-allowed disabled:opacity-70";
+
+interface AuthFieldProps {
+  readonly id: string;
+  readonly label: string;
+  readonly type: string;
+  readonly value: string;
+  readonly autoComplete: string;
+  readonly placeholder: string;
+  readonly disabled: boolean;
+  readonly spellCheck?: boolean;
+  readonly onValueChange: (value: string) => void;
+}
+
+function AuthField({
+  id,
+  label,
+  type,
+  value,
+  autoComplete,
+  placeholder,
+  disabled,
+  spellCheck = true,
+  onValueChange,
+}: AuthFieldProps): ReactElement {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className={FIELD_LABEL_CLASS}>
+        {label}
+      </label>
+      <input
+        id={id}
+        name={id}
+        type={type}
+        value={value}
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        spellCheck={spellCheck}
+        disabled={disabled}
+        onChange={(event: ChangeEvent<HTMLInputElement>): void => {
+          onValueChange(event.target.value);
+        }}
+        className={FIELD_INPUT_CLASS}
+      />
+    </div>
+  );
+}
+
+function SpinnerIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      className="h-4 w-4 animate-spin"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.35"
+        strokeWidth="3.5"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function AlertIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    </svg>
+  );
+}
+
+/**
+ * Authentication landing, Login and Sign Up screens shown whenever no session
+ * exists. Follows the hand-drawn wireframes (logo and name on top, then a
+ * single centered card) but styled with the app's cosmic glass language so it
+ * reads as a finished product. Password fields are masked and every submit is
+ * validated before it reaches the account store.
+ */
+export default function AuthScreen(): ReactElement {
+  const { signUp, logIn } = useAccounts();
+
+  const [view, setView] = useState<AuthView>("landing");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  const [loginUsername, setLoginUsername] = useState<string>("");
+  const [loginPassword, setLoginPassword] = useState<string>("");
+
+  const [fullName, setFullName] = useState<string>("");
+  const [signUpUsername, setSignUpUsername] = useState<string>("");
+  const [signUpPassword, setSignUpPassword] = useState<string>("");
+  const [confirmPassword, setConfirmPassword] = useState<string>("");
+
+  const showView = (nextView: AuthView): void => {
+    if (isSubmitting) {
+      return;
+    }
+    setError(null);
+    setView(nextView);
+  };
+
+  const handleLoginSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
+    const username: string = loginUsername.trim();
+    if (username === "" || loginPassword === "") {
+      setError(AUTH_MESSAGES.required);
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+    // Brief pending state so the button shows real feedback while the
+    // session is being opened.
+    window.setTimeout((): void => {
+      const result = logIn(username, loginPassword);
+      if (result.ok) {
+        // The guard swaps in the app and this screen unmounts.
+        return;
+      }
+      setIsSubmitting(false);
+      setError(result.error ?? AUTH_MESSAGES.badCredentials);
+    }, 300);
+  };
+
+  const handleSignUpSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
+    const trimmedFullName: string = fullName.trim();
+    const trimmedUsername: string = signUpUsername.trim();
+    if (
+      trimmedFullName === "" ||
+      trimmedUsername === "" ||
+      signUpPassword === "" ||
+      confirmPassword === ""
+    ) {
+      setError(AUTH_MESSAGES.required);
+      return;
+    }
+    if (signUpPassword !== confirmPassword) {
+      setError(AUTH_MESSAGES.passwordMismatch);
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+    window.setTimeout((): void => {
+      const input: AuthInput = {
+        fullName: trimmedFullName,
+        username: trimmedUsername,
+        password: signUpPassword,
+        confirmPassword,
+      };
+      const result = signUp(input);
+      if (result.ok) {
+        // Account created and session opened; the guard shows the app
+        // together with the success confirmation.
+        return;
+      }
+      setIsSubmitting(false);
+      setError(result.error ?? AUTH_MESSAGES.required);
+    }, 300);
+  };
+
+  const switchPrompt: ReactElement = (
+    <p className="mt-1 text-center text-sm text-slate-500 dark:text-slate-400">
+      {view === "login" ? "Don't have an account? " : "Already have an account? "}
+      <button
+        type="button"
+        onClick={(): void => {
+          showView(view === "login" ? "signup" : "login");
+        }}
+        disabled={isSubmitting}
+        className="font-display text-[11px] font-bold uppercase tracking-widest text-glow-500 underline-offset-4 transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-glow-400 disabled:opacity-60 dark:text-glow-300"
+      >
+        {view === "login" ? "Sign Up" : "Login"}
+      </button>
+    </p>
+  );
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <header className="mb-8 flex flex-col items-center gap-4 text-center">
+          {/* The white logo always sits on its own dark badge, even in light mode. */}
+          <span className="inline-flex rounded-[2rem] bg-gradient-to-b from-space-900 to-space-950 p-4 ring-1 ring-white/10 shadow-glow">
+            <Image
+              src={LOGO_SRC}
+              alt={LOGO_ALT}
+              width={LOGO_WIDTH}
+              height={LOGO_HEIGHT}
+              priority
+              className="h-auto w-28 sm:w-32"
+            />
+          </span>
+          <div>
+            <p className="font-display text-[10px] font-bold uppercase tracking-[0.4em] text-nebula-500 dark:text-nebula-300">
+              Mission Control
+            </p>
+            <h1 className="mt-2 font-display text-2xl font-black uppercase tracking-[0.25em] text-cosmic sm:text-3xl">
+              Cosmo Cadet
+            </h1>
+            <div
+              aria-hidden="true"
+              className="mx-auto mt-3 h-px w-36 bg-gradient-to-r from-transparent via-glow-400/70 to-transparent"
+            />
+          </div>
+        </header>
+
+        <section
+          aria-label="Authentication"
+          className="glass rounded-3xl p-6 shadow-glass sm:p-8"
+        >
+          {view === "landing" ? (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={(): void => {
+                  showView("login");
+                }}
+                className={SUBMIT_CLASS}
+              >
+                <span className="relative z-10">Login</span>
+              </button>
+              <button
+                type="button"
+                onClick={(): void => {
+                  showView("signup");
+                }}
+                className="glow-btn glow-btn-outline w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <span className="relative z-10">Sign Up</span>
+              </button>
+            </div>
+          ) : (
+            <form
+              noValidate
+              aria-busy={isSubmitting}
+              onSubmit={
+                view === "login" ? handleLoginSubmit : handleSignUpSubmit
+              }
+              className="flex flex-col gap-4"
+            >
+              {error !== null ? (
+                <p
+                  role="alert"
+                  className="flex items-start gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-semibold leading-relaxed text-red-600 dark:text-red-300"
+                >
+                  <span className="mt-0.5 text-red-500 dark:text-red-300">
+                    <AlertIcon />
+                  </span>
+                  {error}
+                </p>
+              ) : null}
+
+              {view === "login" ? (
+                <>
+                  <AuthField
+                    id="login-username"
+                    label="Username"
+                    type="text"
+                    value={loginUsername}
+                    autoComplete="username"
+                    placeholder="Your username"
+                    disabled={isSubmitting}
+                    spellCheck={false}
+                    onValueChange={setLoginUsername}
+                  />
+                  <AuthField
+                    id="login-password"
+                    label="Password"
+                    type="password"
+                    value={loginPassword}
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    disabled={isSubmitting}
+                    onValueChange={setLoginPassword}
+                  />
+                </>
+              ) : (
+                <>
+                  <AuthField
+                    id="signup-full-name"
+                    label="Full Name"
+                    type="text"
+                    value={fullName}
+                    autoComplete="name"
+                    placeholder="Your full name"
+                    disabled={isSubmitting}
+                    onValueChange={setFullName}
+                  />
+                  <AuthField
+                    id="signup-username"
+                    label="Username"
+                    type="text"
+                    value={signUpUsername}
+                    autoComplete="username"
+                    placeholder="Pick a username"
+                    disabled={isSubmitting}
+                    spellCheck={false}
+                    onValueChange={setSignUpUsername}
+                  />
+                  <AuthField
+                    id="signup-password"
+                    label="Password"
+                    type="password"
+                    value={signUpPassword}
+                    autoComplete="new-password"
+                    placeholder="Create a password"
+                    disabled={isSubmitting}
+                    onValueChange={setSignUpPassword}
+                  />
+                  <AuthField
+                    id="signup-confirm-password"
+                    label="Confirm Password"
+                    type="password"
+                    value={confirmPassword}
+                    autoComplete="new-password"
+                    placeholder="Repeat your password"
+                    disabled={isSubmitting}
+                    onValueChange={setConfirmPassword}
+                  />
+                </>
+              )}
+
+              <button type="submit" disabled={isSubmitting} className={SUBMIT_CLASS}>
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  {isSubmitting ? (
+                    <>
+                      <SpinnerIcon />
+                      {view === "login" ? "Logging in..." : "Creating account..."}
+                    </>
+                  ) : view === "login" ? (
+                    "Login"
+                  ) : (
+                    "Sign Up"
+                  )}
+                </span>
+              </button>
+
+              {switchPrompt}
+            </form>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+</script>
+
+<script type="text/plain" data-path="stubs/logo.d.ts">
+export declare const LOGO_SRC: string;
+export declare const LOGO_WIDTH: number;
+export declare const LOGO_HEIGHT: number;
+export declare const LOGO_ALT: string;
+</script>
+
+<script type="text/plain" data-path="stubs/loading.d.ts">
+import type { ReactElement } from "react";
+export interface LoadingScreenProps {
+  readonly message?: string;
+}
+export default function LoadingScreen(props: LoadingScreenProps): ReactElement;
+</script>
+
+<script type="text/plain" data-path="stubs/next-image.d.ts">
+import type * as React from "react";
+
+export interface ImageProps {
+  src: string;
+  alt: string;
+  width?: number;
+  height?: number;
+  className?: string;
+  priority?: boolean;
+  fill?: boolean;
+  sizes?: string;
+  quality?: number;
+  placeholder?: string;
+  blurDataURL?: string;
+  style?: React.CSSProperties;
+  onLoad?: React.ReactEventHandler<HTMLImageElement>;
+  onError?: React.ReactEventHandler<HTMLImageElement>;
+  [key: string]: unknown;
+}
+
+declare const Image: React.ComponentType<ImageProps>;
+export default Image;
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/typescript@5.6.3/lib/typescript.js"></script>
+
+<script>
+(async function () {
+  const results = [];
+  let pass = 0;
+  let fail = 0;
+  function check(name, cond, extra) {
+    if (cond) {
+      pass += 1;
+      results.push("PASS  " + name);
+    } else {
+      fail += 1;
+      results.push("FAIL  " + name + (extra === undefined ? "" : "  >> " + String(extra)));
+    }
+  }
+  function info(msg) { results.push("INFO  " + msg); }
+  function render() { document.getElementById("results").textContent = results.join("\n"); }
+  render();
+
+  try {
+    if (typeof ts === "undefined") { throw new Error("typescript.js failed to load"); }
+    info("TypeScript " + ts.version + " (CDN)");
+
+    const sources = {};
+    document.querySelectorAll('script[type="text/plain"][data-path]').forEach(function (node) {
+      sources[node.getAttribute("data-path")] = node.textContent.replace(/^\n/, "");
+    });
+
+    // ---------------- A) behavioral tests of the auth logic ----------------
+    const transpiled = ts.transpileModule(sources["lib/auth.ts"], {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2017,
+        module: ts.ModuleKind.CommonJS,
+        esModuleInterop: true
+      }
+    }).outputText;
+    const mod = { exports: {} };
+    new Function("module", "exports", "require", transpiled)(mod, mod.exports, function (n) {
+      throw new Error("unexpected require in lib/auth: " + n);
+    });
+    const A = mod.exports;
+
+    function memStorage() {
+      const m = new Map();
+      return {
+        getItem: function (k) { return m.has(k) ? m.get(k) : null; },
+        setItem: function (k, v) { m.set(k, String(v)); },
+        removeItem: function (k) { m.delete(k); },
+        _raw: function (k) { return m.has(k) ? m.get(k) : null; },
+        _set: function (k, v) { m.set(k, v); }
+      };
+    }
+
+    const SEEDS = ["cadet-alex", "cadet-sam"];
+    const MSG = {
+      required: "Please fill in all required fields.",
+      mismatch: "Passwords do not match.",
+      taken: "Username already taken. Please choose another username.",
+      bad: "Incorrect username or password."
+    };
+
+    check("spec message: required fields", A.AUTH_MESSAGES.required === MSG.required, A.AUTH_MESSAGES.required);
+    check("spec message: password mismatch", A.AUTH_MESSAGES.passwordMismatch === MSG.mismatch, A.AUTH_MESSAGES.passwordMismatch);
+    check("spec message: username taken (verbatim)", A.AUTH_MESSAGES.usernameTaken === MSG.taken, A.AUTH_MESSAGES.usernameTaken);
+    check("spec message: bad credentials (verbatim)", A.AUTH_MESSAGES.badCredentials === MSG.bad, A.AUTH_MESSAGES.badCredentials);
+    check("session storage key unchanged from existing app", A.ACCOUNT_STORAGE_KEY === "cosmo-cadet-active-account", A.ACCOUNT_STORAGE_KEY);
+
+    const h1 = A.hashPassword("Launch!23");
+    const h2 = A.hashPassword("Launch!23");
+    const h3 = A.hashPassword("Launch!24");
+    check("hashPassword deterministic", h1 === h2, h1 + " vs " + h2);
+    check("hashPassword differs per password", h1 !== h3, h1 + " / " + h3);
+    check("hashPassword never equals the plain password", h1.indexOf("Launch!23") === -1, h1);
+
+    let s = memStorage();
+    let r = A.createAccount(s, { fullName: "", username: "", password: "", confirmPassword: "" });
+    check("signup: all fields empty -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "", username: "nova", password: "p1", confirmPassword: "p1" });
+    check("signup: empty full name -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "Nova", username: "   ", password: "p1", confirmPassword: "p1" });
+    check("signup: empty username -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "Nova", username: "nova", password: "", confirmPassword: "" });
+    check("signup: empty password -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "Nova", username: "nova", password: "p1", confirmPassword: "" });
+    check("signup: empty confirm -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "Nova", username: "nova", password: "p1", confirmPassword: "p2" });
+    check("signup: password mismatch -> exact message", r.ok === false && r.error === MSG.mismatch, JSON.stringify(r));
+    check("signup: invalid attempts store nothing", A.readAccounts(s).length === 0, A.readAccounts(s).length);
+
+    s = memStorage();
+    r = A.createAccount(s, { fullName: "  Nova Stardust ", username: " NovaStardust ", password: "pw-123", confirmPassword: "pw-123" });
+    check("signup: happy path succeeds", r.ok === true && r.account !== undefined, JSON.stringify(r));
+    const acct = r.account;
+    check("signup: display name is trimmed full name", acct.displayName === "Nova Stardust", acct.displayName);
+    check("signup: username is trimmed", acct.username === "NovaStardust", acct.username);
+    check("signup: password not stored in plain text", s._raw(A.USERS_STORAGE_KEY).indexOf("pw-123") === -1);
+    check("signup: account persisted to store", A.readAccounts(s).length === 1, A.readAccounts(s).length);
+    check("signup: session opened for new account", s.getItem(A.ACCOUNT_STORAGE_KEY) === acct.id, s.getItem(A.ACCOUNT_STORAGE_KEY));
+    check("signup: session id accepted on reload", A.readSessionId(s, SEEDS.concat([acct.id])) === acct.id);
+
+    r = A.createAccount(s, { fullName: "Impostor", username: "novastardust", password: "x1", confirmPassword: "x1" });
+    check("signup: duplicate username -> exact message", r.ok === false && r.error === MSG.taken, JSON.stringify(r));
+    r = A.createAccount(s, { fullName: "Impostor", username: "  NOVASTARDUST  ", password: "x1", confirmPassword: "x1" });
+    check("signup: duplicate (case/space variant) -> exact message", r.ok === false && r.error === MSG.taken, JSON.stringify(r));
+    check("signup: duplicate does not add an account", A.readAccounts(s).length === 1, A.readAccounts(s).length);
+
+    r = A.signIn(s, "novastardust", "wrong-pw");
+    check("login: wrong password -> exact message", r.ok === false && r.error === MSG.bad, JSON.stringify(r));
+    r = A.signIn(s, "ghost-user", "whatever");
+    check("login: unknown username -> exact message", r.ok === false && r.error === MSG.bad, JSON.stringify(r));
+    r = A.signIn(s, "", "pw-123");
+    check("login: empty username -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.signIn(s, "novastardust", "");
+    check("login: empty password -> required", r.ok === false && r.error === MSG.required, JSON.stringify(r));
+    r = A.signIn(s, "  NovaStardust  ", "pw-123");
+    check("login: correct credentials -> ok", r.ok === true && r.account !== undefined, JSON.stringify(r));
+    check("login: session opened", s.getItem(A.ACCOUNT_STORAGE_KEY) === acct.id, s.getItem(A.ACCOUNT_STORAGE_KEY));
+
+    A.clearSessionId(s);
+    check("logout: session key removed", s.getItem(A.ACCOUNT_STORAGE_KEY) === null);
+    check("logout: reload lands on auth screen", A.readSessionId(s, SEEDS.concat([acct.id])) === null);
+    s._set(A.ACCOUNT_STORAGE_KEY, "cadet-ghost");
+    check("stale/tampered session rejected and removed", A.readSessionId(s, SEEDS.concat([acct.id])) === null && s.getItem(A.ACCOUNT_STORAGE_KEY) === null);
+    s._set(A.ACCOUNT_STORAGE_KEY, "cadet-alex");
+    check("pre-existing demo session still accepted", A.readSessionId(s, SEEDS.concat([acct.id])) === "cadet-alex");
+
+    s._set(A.USERS_STORAGE_KEY, "{corrupt json");
+    check("corrupt account store -> empty list, no crash", A.readAccounts(s).length === 0);
+    s = memStorage();
+    s._set(A.USERS_STORAGE_KEY, JSON.stringify([{ id: "x" }, { id: "y", displayName: "Y", fullName: "Y", username: "y", passwordHash: "h" }]));
+    check("malformed entries filtered out", A.readAccounts(s).length === 1, A.readAccounts(s).length);
+    check("isStoredAccount rejects malformed values", A.isStoredAccount({ id: "x" }) === false && A.isStoredAccount(null) === false && A.isStoredAccount("s") === false);
+
+    s = memStorage();
+    check("JOURNEY new user starts at landing (no session)", A.readSessionId(s, SEEDS) === null);
+    r = A.createAccount(s, { fullName: "Ride Comet", username: "ride", password: "s3cret", confirmPassword: "s3cret" });
+    check("JOURNEY new user: sign up -> logged in", r.ok === true && A.readSessionId(s, SEEDS.concat([r.account.id])) === r.account.id);
+    A.clearSessionId(s);
+    check("JOURNEY new user: logout -> auth landing", A.readSessionId(s, SEEDS.concat([r.account.id])) === null);
+    r = A.signIn(s, "ride", "s3cret");
+    check("JOURNEY returning user: login -> app", r.ok === true && A.readSessionId(s, SEEDS.concat([r.account.id])) === r.account.id);
+    A.clearSessionId(s);
+    check("JOURNEY returning user: logout -> auth landing", A.readSessionId(s, SEEDS.concat([r.account.id])) === null);
+
+    info("behavior tests: " + pass + " passed, " + fail + " failed");
+    render();
+
+    // ---------------- B) strict typecheck of the auth core ----------------
+    const EMBEDDED = ["lib/auth.ts", "components/AccountProvider.tsx", "components/AuthGuard.tsx", "components/AuthScreen.tsx"];
+    const STUBS = ["stubs/logo.d.ts", "stubs/loading.d.ts", "stubs/next-image.d.ts"];
+    const files = new Map();
+    for (const p of EMBEDDED.concat(STUBS)) {
+      const text = sources[p];
+      if (typeof text !== "string") { throw new Error("missing embedded source: " + p); }
+      files.set(p, text);
+    }
+
+    const TS_LIB_BASE = "https://cdn.jsdelivr.net/npm/typescript@5.6.3/lib/";
+    const REACT_BASE = "https://cdn.jsdelivr.net/npm/@types/react@18.3.11/";
+    const SEED_FILES = [
+      { url: TS_LIB_BASE + "lib.es2017.full.d.ts", vpath: "types/lib/lib.es2017.full.d.ts" },
+      { url: REACT_BASE + "index.d.ts", vpath: "types/react/index.d.ts" },
+      { url: REACT_BASE + "jsx-runtime.d.ts", vpath: "types/react/jsx-runtime.d.ts" },
+      { url: REACT_BASE + "jsx-dev-runtime.d.ts", vpath: "types/react/jsx-dev-runtime.d.ts" },
+      { url: "https://cdn.jsdelivr.net/npm/@types/prop-types/index.d.ts", vpath: "types/prop-types/index.d.ts" },
+      { url: "https://cdn.jsdelivr.net/npm/csstype/index.d.ts", vpath: "types/csstype/index.d.ts" }
+    ];
+    const REF_PATH_RE = /\/\/\/\s*<reference\s+path\s*=\s*["']([^"']+)["']/g;
+    const REF_LIB_RE = /\/\/\/\s*<reference\s+lib\s*=\s*["']([^"']+)["']/g;
+
+    function dirname(p) { const i = p.lastIndexOf("/"); return i === -1 ? "" : p.slice(0, i + 1); }
+    function joinPath(baseDir, rel) {
+      const stack = baseDir === "" ? [] : baseDir.replace(/\/$/, "").split("/");
+      for (const part of rel.split("/")) {
+        if (part === "" || part === ".") continue;
+        if (part === "..") stack.pop();
+        else stack.push(part);
+      }
+      return stack.join("/");
+    }
+    async function fetchText(url) {
+      const res = await fetch(url);
+      if (!res.ok) { throw new Error("HTTP " + res.status + " for " + url); }
+      return res.text();
+    }
+
+    const queue = SEED_FILES.slice();
+    const seen = new Set();
+    let fetched = 0;
+    while (queue.length > 0) {
+      const level = queue.splice(0, queue.length);
+      await Promise.all(level.map(async function (item) {
+        if (seen.has(item.vpath) || files.has(item.vpath)) { return; }
+        seen.add(item.vpath);
+        let text;
+        try {
+          text = await fetchText(item.url);
+        } catch (e) {
+          results.push("WARN  fetch failed: " + item.url + " (" + e.message + ")");
+          return;
+        }
+        files.set(item.vpath, text);
+        fetched += 1;
+        const dirUrl = item.url.slice(0, item.url.lastIndexOf("/") + 1);
+        const dirPath = dirname(item.vpath);
+        let m;
+        REF_PATH_RE.lastIndex = 0;
+        while ((m = REF_PATH_RE.exec(text)) !== null) {
+          queue.push({ url: new URL(m[1], dirUrl).href, vpath: joinPath(dirPath, m[1]) });
+        }
+        REF_LIB_RE.lastIndex = 0;
+        while ((m = REF_LIB_RE.exec(text)) !== null) {
+          queue.push({ url: TS_LIB_BASE + "lib." + m[1] + ".d.ts", vpath: "types/lib/lib." + m[1] + ".d.ts" });
+        }
+      }));
+    }
+    info("prefetched " + fetched + " declaration files from CDN");
+    render();
+
+    const BARE = {
+      "react": "types/react/index.d.ts",
+      "react/jsx-runtime": "types/react/jsx-runtime.d.ts",
+      "react/jsx-dev-runtime": "types/react/jsx-dev-runtime.d.ts",
+      "prop-types": "types/prop-types/index.d.ts",
+      "csstype": "types/csstype/index.d.ts",
+      "next/image": "stubs/next-image.d.ts"
+    };
+    const APP_ALIASES = {
+      "@/components/logo": "stubs/logo.d.ts",
+      "@/components/LoadingScreen": "stubs/loading.d.ts"
+    };
+    function tryResolve(spec) {
+      const base = spec.replace(/\.(tsx|ts)$/, "");
+      const candidates = [spec, base + ".ts", base + ".tsx", base + ".d.ts"];
+      for (const c of candidates) {
+        if (files.has(c)) { return c; }
+      }
+      return undefined;
+    }
+    function extOf(fileName) {
+      if (fileName.endsWith(".d.ts")) { return ts.Extension.Dts; }
+      if (fileName.endsWith(".tsx")) { return ts.Extension.Tsx; }
+      if (fileName.endsWith(".jsx")) { return ts.Extension.JsxEmit ? ts.Extension.Tsx : ts.Extension.Ts; }
+      return ts.Extension.Ts;
+    }
+
+    const options = {
+      target: ts.ScriptTarget.ES2017,
+      strict: true,
+      noImplicitAny: true,
+      noUncheckedIndexedAccess: true,
+      esModuleInterop: true,
+      allowSyntheticDefaultImports: true,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      resolveJsonModule: true,
+      isolatedModules: true,
+      jsx: ts.JsxEmit.Preserve,
+      skipLibCheck: true,
+      noEmit: true,
+      types: [],
+      typeRoots: []
+    };
+
+    const host = {
+      getSourceFile: function (fileName, languageVersion) {
+        const text = files.get(fileName);
+        if (text === undefined) { return undefined; }
+        const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX
+          : fileName.endsWith(".jsx") ? ts.ScriptKind.JSX
+          : ts.ScriptKind.TS;
+        return ts.createSourceFile(fileName, text, languageVersion, true, kind);
+      },
+      getDefaultLibFileName: function () { return "types/lib/lib.es2017.full.d.ts"; },
+      writeFile: function () {},
+      getCurrentDirectory: function () { return "/"; },
+      getDirectories: function () { return []; },
+      fileExists: function (f) { return files.has(f); },
+      readFile: function (f) { return files.has(f) ? files.get(f) : undefined; },
+      getCanonicalFileName: function (f) { return f; },
+      useCaseSensitiveFileNames: function () { return true; },
+      getNewLine: function () { return "\n"; },
+      directoryExists: function () { return true; },
+      realpath: function (f) { return f; },
+      resolveModuleNames: function (moduleNames, containingFile) {
+        return moduleNames.map(function (name) {
+          let resolved;
+          if (name.indexOf("@/") === 0) {
+            resolved = APP_ALIASES[name] !== undefined ? APP_ALIASES[name] : tryResolve(name.slice(2));
+          } else if (name.indexOf(".") === 0) {
+            resolved = tryResolve(joinPath(dirname(containingFile), name));
+          } else {
+            resolved = BARE[name];
+          }
+          if (resolved === undefined) { return undefined; }
+          return {
+            resolvedFileName: resolved,
+            extension: extOf(resolved),
+            isExternalLibraryImport: resolved.indexOf("types/") === 0
+          };
+        });
+      }
+    };
+
+    const rootNames = EMBEDDED.concat(STUBS).concat(
+      Array.from(files.keys()).filter(function (f) { return f.indexOf("types/") === 0; })
+    );
+    const program = ts.createProgram({ rootNames: rootNames, options: options, host: host });
+    const diags = program.getSyntacticDiagnostics().concat(program.getSemanticDiagnostics());
+    const mine = diags.filter(function (d) {
+      return d.file !== undefined && d.file !== null && EMBEDDED.indexOf(d.file.fileName) !== -1;
+    });
+    info("strict typecheck (strict + noUncheckedIndexedAccess + jsx: preserve as in tsconfig) of auth core: " + mine.length + " diagnostics");
+    mine.forEach(function (d) {
+      let loc = "";
+      if (d.start !== undefined && d.start !== null) {
+        const pos = d.file.getLineAndCharacterOfPosition(d.start);
+        loc = d.file.fileName + ":" + (pos.line + 1) + ":" + (pos.character + 1) + "  ";
+      }
+      results.push("TS" + d.code + "  " + loc + ts.flattenDiagnosticMessageText(d.messageText, " "));
+    });
+
+    info("behavior tests total: " + pass + " passed, " + fail + " failed");
+    info(fail === 0 && mine.length === 0 ? "RESULT: ALL GREEN" : "RESULT: PROBLEMS FOUND");
+  } catch (e) {
+    results.push("ERROR " + (e && e.message ? e.message : String(e)));
+    if (e && e.stack) { results.push(String(e.stack)); }
+  }
+  render();
+})();
+</script>
+</body>
+</html>

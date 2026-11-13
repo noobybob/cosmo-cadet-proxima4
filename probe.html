@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CDN probe</title>
+</head>
+<body>
+<p id="out">loading…</p>
+<script>
+const out = document.getElementById("out");
+fetch("https://cdn.jsdelivr.net/npm/typescript@5.6.3/lib/typescript.js")
+  .then((r) => { out.textContent = "jsdelivr: " + r.status; return r.status === 200 ? r.text() : ""; })
+  .then((t) => {
+    if (t.length > 0) {
+      out.textContent += " len=" + t.length;
+    } else {
+      return fetch("https://unpkg.com/typescript@5.6.3/lib/typescript.js").then((r2) => { out.textContent += " | unpkg: " + r2.status; });
+    }
+  })
+  .catch((e) => { out.textContent = "ERR " + String(e); });
+</script>
+</body>
+</html>

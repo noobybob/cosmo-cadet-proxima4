@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cosmo Cadet — Auth screens (design preview)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com?plugins="></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          primary: "#0B1035",
+          secondary: "#22D3EE",
+          background: "#F6F8FE",
+          space: { 950: "#04061A", 900: "#080C24", 850: "#0C1236", 800: "#121A4D" },
+          nebula: { 300: "#C4B5FD", 400: "#A78BFA", 500: "#8B5CF6", 600: "#7C3AED" },
+          glow: { 300: "#67E8F9", 400: "#22D3EE", 500: "#06B6D4" }
+        },
+        fontFamily: {
+          sans: ["var(--font-grotesk)", "Space Grotesk", "ui-sans-serif", "system-ui", "sans-serif"],
+          display: ["var(--font-orbitron)", "Orbitron", "ui-sans-serif", "system-ui", "sans-serif"]
+        },
+        boxShadow: {
+          glow: "0 0 24px rgba(34, 211, 238, 0.35), 0 0 64px rgba(34, 211, 238, 0.12)",
+          "glow-lg": "0 0 44px rgba(34, 211, 238, 0.5), 0 16px 48px rgba(124, 58, 237, 0.35)",
+          "glow-purple": "0 0 24px rgba(139, 92, 246, 0.4), 0 0 64px rgba(139, 92, 246, 0.15)",
+          glass: "0 8px 32px rgba(4, 6, 26, 0.35)"
+        },
+        keyframes: {
+          float: { "0%, 100%": { transform: "translateY(0)" }, "50%": { transform: "translateY(-8px)" } },
+          "pulse-glow": { "0%, 100%": { boxShadow: "0 0 24px rgba(34, 211, 238, 0.35)" }, "50%": { boxShadow: "0 0 64px rgba(139, 92, 246, 0.6)" } },
+          "page-fade": { "0%": { opacity: "0" }, "100%": { opacity: "1" } }
+        },
+        animation: {
+          float: "float 5s ease-in-out infinite",
+          "pulse-glow": "pulse-glow 2.8s ease-in-out infinite",
+          "page-fade": "page-fade 0.4s ease-out backwards"
+        }
+      }
+    }
+  };
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --font-orbitron: "Orbitron", ui-sans-serif, system-ui, sans-serif;
+    --font-grotesk: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+  .dark { color-scheme: dark; }
+  body {
+    background-color: #f6f8fe;
+    background-image:
+      radial-gradient(1000px 600px at 8% -10%, rgba(139, 92, 246, 0.1), transparent 60%),
+      radial-gradient(900px 500px at 100% 10%, rgba(34, 211, 238, 0.1), transparent 55%),
+      radial-gradient(1100px 700px at 50% 115%, rgba(168, 85, 247, 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+  .dark body {
+    background-color: #04061a;
+    background-image:
+      radial-gradient(1000px 600px at 8% -10%, rgba(124, 58, 237, 0.3), transparent 60%),
+      radial-gradient(900px 500px at 100% 10%, rgba(34, 211, 238, 0.14), transparent 55%),
+      radial-gradient(1100px 700px at 50% 115%, rgba(168, 85, 247, 0.2), transparent 60%);
+    background-attachment: fixed;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+  .dark .glass {
+    background: rgba(8, 12, 38, 0.55);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(4, 6, 26, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  .text-cosmic { color: #0b1035; }
+  .dark .text-cosmic {
+    background-image: linear-gradient(95deg, #67e8f9 0%, #a78bfa 55%, #f0abfc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glow-btn {
+    position: relative;
+    overflow: hidden;
+    border-radius: 9999px;
+    color: #ffffff;
+    background-image: linear-gradient(135deg, #22d3ee 0%, #6366f1 55%, #8b5cf6 100%);
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.35), 0 10px 30px rgba(124, 58, 237, 0.35);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease;
+  }
+  .glow-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.7s ease;
+  }
+  .glow-btn:hover { transform: translateY(-3px); box-shadow: 0 0 44px rgba(34, 211, 238, 0.55), 0 14px 40px rgba(139, 92, 246, 0.45); }
+  .glow-btn:hover::after { transform: translateX(120%); }
+  .glow-btn:active { transform: translateY(-1px) scale(0.97); box-shadow: 0 0 16px rgba(34, 211, 238, 0.5); }
+  .glow-btn:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+  .glow-btn-outline {
+    color: #0e7490;
+    background-image: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(139, 92, 246, 0.12));
+    border: 1px solid rgba(8, 145, 178, 0.5);
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.15);
+  }
+  .dark .glow-btn-outline { color: #a5f3fc; border-color: rgba(103, 232, 249, 0.45); box-shadow: 0 0 16px rgba(34, 211, 238, 0.2); }
+  .dark .glow-btn-outline:hover { color: #ffffff; background-image: linear-gradient(135deg, rgba(34, 211, 238, 0.22), rgba(139, 92, 246, 0.22)); box-shadow: 0 0 36px rgba(34, 211, 238, 0.45), 0 12px 36px rgba(139, 92, 246, 0.3); }
+  #preview-tools { position: fixed; right: 12px; bottom: 12px; z-index: 90; display: flex; gap: 8px; }
+  #preview-tools button {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+    background: rgba(8, 12, 38, 0.85); color: #a5f3fc; border: 1px solid rgba(34, 211, 238, 0.4);
+  }
+</style>
+</head>
+<body class="min-h-screen font-sans text-slate-600 antialiased dark:text-slate-200">
+
+<!-- Success notice (rendered by AuthGuard after sign-up) -->
+<div id="notice" role="status" class="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-4" hidden>
+  <div class="glass flex w-full max-w-2xl items-start gap-3 rounded-2xl border border-emerald-400/40 px-4 py-3 shadow-glow sm:items-center">
+    <span class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-glow sm:mt-0">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M4 12.5 9 17.5 20 6.5" /></svg>
+    </span>
+    <p class="flex-1 text-sm font-semibold leading-relaxed text-emerald-600 dark:text-emerald-300">Account created successfully! Welcome aboard, Nova Stardust.</p>
+    <button type="button" aria-label="Dismiss notification" onclick="document.getElementById('notice').hidden = true" class="rounded-lg p-1 text-emerald-600/70 transition-colors hover:bg-emerald-500/10 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-glow-400 dark:text-emerald-300/70 dark:hover:text-emerald-200">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-4 w-4"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+  </div>
+</div>
+
+<main class="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+  <div class="w-full max-w-md">
+    <header class="mb-8 flex flex-col items-center gap-4 text-center">
+      <!-- In the app this badge holds the real Cosmo Cadet logo PNG -->
+      <span class="inline-flex rounded-[2rem] bg-gradient-to-b from-space-900 to-space-950 p-4 ring-1 ring-white/10 shadow-glow">
+        <span aria-label="Cosmo Cadet logo (placeholder for logo.png.png)" class="flex h-[91px] w-28 items-center justify-center text-5xl sm:h-[102px] sm:w-32">🚀</span>
+      </span>
+      <div>
+        <p class="font-display text-[10px] font-bold uppercase tracking-[0.4em] text-nebula-500 dark:text-nebula-300">Mission Control</p>
+        <h1 class="mt-2 font-display text-2xl font-black uppercase tracking-[0.25em] text-cosmic sm:text-3xl">Cosmo Cadet</h1>
+        <div aria-hidden="true" class="mx-auto mt-3 h-px w-36 bg-gradient-to-r from-transparent via-glow-400/70 to-transparent"></div>
+      </div>
+    </header>
+
+    <section aria-label="Authentication" class="glass rounded-3xl p-6 shadow-glass sm:p-8">
+
+      <!-- LANDING -->
+      <div data-view="landing">
+        <div class="flex flex-col gap-3">
+          <button type="button" onclick="showView('login')" class="glow-btn w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none">
+            <span class="relative z-10">Login</span>
+          </button>
+          <button type="button" onclick="showView('signup')" class="glow-btn glow-btn-outline w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none disabled:cursor-not-allowed disabled:opacity-70">
+            <span class="relative z-10">Sign Up</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- LOGIN -->
+      <form data-view="login" noValidate class="flex flex-col gap-4" hidden>
+        <p class="error hidden items-start gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-semibold leading-relaxed text-red-600 dark:text-red-300" role="alert">
+          <span class="mt-0.5 text-red-500 dark:text-red-300">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0"><path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
+          </span>
+          <span class="error-text">Incorrect username or password.</span>
+        </p>
+        <div class="flex flex-col gap-1.5">
+          <label for="login-username" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Username</label>
+          <input id="login-username" name="login-username" type="text" autocomplete="username" placeholder="Your username" spellcheck="false"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="login-password" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Password</label>
+          <input id="login-password" name="login-password" type="password" autocomplete="current-password" placeholder="Your password"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <button type="submit" class="glow-btn w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none disabled:cursor-not-allowed disabled:opacity-70">
+          <span class="relative z-10 flex items-center justify-center gap-2">Login</span>
+        </button>
+        <p class="mt-1 text-center text-sm text-slate-500 dark:text-slate-400">
+          Don't have an account?
+          <button type="button" onclick="showView('signup')" class="font-display text-[11px] font-bold uppercase tracking-widest text-glow-500 underline-offset-4 transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-glow-400 disabled:opacity-60 dark:text-glow-300">Sign Up</button>
+        </p>
+      </form>
+
+      <!-- SIGN UP -->
+      <form data-view="signup" noValidate class="flex flex-col gap-4" hidden>
+        <p class="error hidden items-start gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-semibold leading-relaxed text-red-600 dark:text-red-300" role="alert">
+          <span class="mt-0.5 text-red-500 dark:text-red-300">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0"><path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
+          </span>
+          <span class="error-text">Username already taken. Please choose another username.</span>
+        </p>
+        <div class="flex flex-col gap-1.5">
+          <label for="signup-full-name" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Full Name</label>
+          <input id="signup-full-name" type="text" autocomplete="name" placeholder="Your full name"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="signup-username" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Username</label>
+          <input id="signup-username" type="text" autocomplete="username" placeholder="Pick a username" spellcheck="false"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="signup-password" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Password</label>
+          <input id="signup-password" type="password" autocomplete="new-password" placeholder="Create a password"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="signup-confirm-password" class="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Confirm Password</label>
+          <input id="signup-confirm-password" type="password" autocomplete="new-password" placeholder="Repeat your password"
+            class="w-full rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-sm text-primary placeholder:text-slate-400 shadow-sm transition-all duration-200 focus:border-glow-400 focus:outline-none focus:ring-2 focus:ring-glow-400/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-space-900/70 dark:text-white dark:placeholder:text-slate-500" />
+        </div>
+        <button type="submit" class="glow-btn w-full px-6 py-3.5 font-display text-xs font-bold uppercase tracking-[0.2em] focus:outline-none disabled:cursor-not-allowed disabled:opacity-70">
+          <span class="relative z-10 flex items-center justify-center gap-2">Sign Up</span>
+        </button>
+        <p class="mt-1 text-center text-sm text-slate-500 dark:text-slate-400">
+          Already have an account?
+          <button type="button" onclick="showView('login')" class="font-display text-[11px] font-bold uppercase tracking-widest text-glow-500 underline-offset-4 transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-glow-400 disabled:opacity-60 dark:text-glow-300">Login</button>
+        </p>
+      </form>
+
+    </section>
+  </div>
+</main>
+
+<div id="preview-tools">
+  <button type="button" onclick="document.documentElement.classList.toggle('dark')">Toggle dark</button>
+  <button type="button" onclick="toggleError()">Show error</button>
+  <button type="button" onclick="var n=document.getElementById('notice'); n.hidden=!n.hidden">Success notice</button>
+</div>
+
+<script>
+  function showView(v) {
+    document.querySelectorAll("[data-view]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-view") !== v;
+      if (!el.hidden) {
+        el.querySelectorAll(".error").forEach(function (e) { e.classList.add("hidden"); e.classList.remove("flex"); });
+      }
+    });
+    window.scrollTo(0, 0);
+  }
+  function toggleError() {
+    var form = document.querySelector("[data-view]:not([hidden])");
+    if (!form) return;
+    var e = form.querySelector(".error");
+    if (!e) return;
+    e.classList.toggle("hidden");
+    e.classList.toggle("flex");
+  }
+  document.querySelectorAll("form").forEach(function (f) {
+    f.addEventListener("submit", function (ev) { ev.preventDefault(); });
+  });
+</script>
+</body>
+</html>
